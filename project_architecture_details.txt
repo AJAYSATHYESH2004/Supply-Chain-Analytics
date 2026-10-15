@@ -1,0 +1,159 @@
+================================================================================
+SMARTCHAIN AI - SYSTEM ARCHITECTURE AND FILE INTEGRATION DETAILS
+================================================================================
+
+This document provides a comprehensive overview of all directories, key files,
+how they work individually, and how they integrate together in the SmartChain AI 
+Supply Chain Rebalancing System.
+
+--------------------------------------------------------------------------------
+1. TECH STACK SUMMARY
+--------------------------------------------------------------------------------
+* Frontend: React.js (Vite), Tailwind CSS, Axios, Lucide Icons, Recharts.
+* Backend: FastAPI (Python), SQLAlchemy (ORM), Pydantic.
+* Database: MySQL (using PyMySQL connector).
+* WebSocket & Caching: Redis (for live notifications and pub/sub).
+* AI & Optimization: Statsmodels, Scikit-learn, Pandas (Forecasting & Rebalancing).
+
+================================================================================
+2. DIRECTORY STRUCTURE & FILE DETAILS
+================================================================================
+
+--------------------------------------------------------------------------------
+A. BACKEND (FastAPI API Service)
+--------------------------------------------------------------------------------
+
+The backend operates as a RESTful and WebSocket API serving data, authentication,
+and executing the AI rebalancing and demand forecasting algorithms.
+
+Location: /backend
+
+* app/main.py
+  - Purpose: Entry point of the FastAPI application.
+  - How it works: Instantiates the FastAPI application, configures CORS settings 
+    to communicate with the frontend, establishes connection/tables with MySQL,
+    runs schema migrations, and registers routers.
+  - Integration: Glues the database engine, WebSocket connections, and all API 
+    endpoints together.
+
+* app/core/
+  - config.py: Holds configuration settings including database credentials, JWT 
+    secret keys, project name, and API route prefixes. Loaded from environment variables.
+  - security.py: Implements password hashing and validation (using bcrypt) and JWT
+    token creation/verification utilities. Used by authentication routes.
+
+* app/db/
+  - session.py: Establishes the SQLAlchemy engine connection pool and provides the
+    session generator ("get_db") used by endpoint dependencies.
+
+* app/models/models.py
+  - Purpose: Database models mapping Python classes to MySQL tables using SQLAlchemy.
+  - How it works: Defines tables like:
+    - User / SignupRequest: For user management and role-based permissions (Admin, HOD, Manager, Employee).
+    - Product / Supplier: Details for SKU cataloging and manufacturer profiles.
+    - State / Depot: Geographic levels of the supply chain.
+    - Stock / StockTransfer: Current stock counts and tracking log of warehouse movements.
+    - TransferRecommendation / ProductionRecommendation: AI-generated inventory suggestions.
+    - Notification / Alert: System events and critical warnings.
+    - AuditLog / Approval / Task: Collaboration, HOD reviews, and audit tracking.
+
+* app/schemas/
+  - Contains Pydantic models for validation and response serialization (e.g. auth.py, 
+    approval.py, department.py, rebalancing.py, task.py).
+
+* app/services/
+  - ai_engine.py: Houses algorithms for analyzing historical data and predicting shortages.
+  - forecasting_service.py & forecasting.py: Demand forecasting calculations using statistical methods.
+  - inventory_service.py: Evaluates safety stock levels, reorder triggers, and logs transactions.
+  - rebalancing_service.py: Core AI Rebalancing Engine. Matches surplus depots with deficit depots,
+    performs geographical cost optimization, and offers transfer or factory production plans.
+  - report_service.py: Builds exportable HOD strategic reports and logistical charts.
+  - websocket_manager.py: Manages real-time active socket connections using Redis pub-sub.
+
+* app/api/endpoints/
+  - auth.py: User registration, login, token refresh, and password management.
+  - rebalancing.py: Endpoint to trigger and retrieve AI stock recommendations.
+  - dashboard_*.py: Admin, HOD, Manager, and Employee-specific dashboard endpoints returning
+    custom-tailored KPI widgets.
+  - products.py, suppliers.py, inventory.py, sales.py: CRUDS for core business entities.
+  - approvals.py, tasks.py: Handles HOD approvals and daily operator task pipelines.
+  - notifications.py, websockets.py: Manages real-time user notification flows.
+
+* scripts/
+  - Contains database seeding and utility scripts (e.g., seed_cavinkare.py to populate
+    the initial database, create_shortages.py to mock inventory shortages for testing, 
+    and fix_users.py to repair credentials).
+
+--------------------------------------------------------------------------------
+B. FRONTEND (React App)
+--------------------------------------------------------------------------------
+
+The frontend is a single-page React application optimized for desktop and mobile displays.
+
+Location: /frontend
+
+* src/main.jsx
+  - Purpose: React entry point.
+  - Integration: Mounts the main React tree and wraps it with ThemeProvider and AuthProvider.
+
+* src/App.jsx
+  - Purpose: Declares all application routes and handles navigation.
+  - How it works: Employs React Router for navigation and uses RequireRole components 
+    to restrict sections to authorized user groups.
+
+* src/context/
+  - AuthContext.jsx: Manages global auth state, stores user tokens, and controls logouts.
+  - ThemeContext.jsx: Manages global appearance (light vs dark mode theme).
+
+* src/services/api.js
+  - Purpose: API client layer.
+  - How it works: Uses Axios instances configured with interceptors to automatically inject 
+    JWT tokens into requests and handle session expiration.
+
+* src/hooks/useWebSocket.js
+  - Purpose: Hook for real-time connectivity.
+  - How it works: Establishes a persistent socket connection to backend, feeding live alerts 
+    directly to the UI.
+
+* src/components/layout/
+  - MainLayout.jsx: The base container frame of the web panel.
+  - SubNav.jsx: Sidebar navigation menu. Integrates responsive drawer slides for mobile views.
+  - Topbar.jsx: Top bar with breadcrumbs, profile menu, and live alert/notification panel.
+
+* src/pages/
+  - Login.jsx / Signup.jsx: Interactive forms for auth.
+  - Dashboard.jsx: Smart router page redirecting users to their role-specific dashboard.
+  - dashboards/: AdminDashboard, HodDashboard, ManagerDashboard, EmployeeDashboard custom components.
+  - Rebalancing.jsx & TransferRecommendations.jsx: The control room where users run AI rebalancing,
+    view active shortages, analyze route cost comparisons (AI vs. Traditional ad-hoc), and trigger 
+    transfers or production orders.
+  - Products.jsx / Suppliers.jsx / Inventory.jsx / Depots.jsx: Structured lists and control panels
+    to manage databases.
+  - Forecasting.jsx: Displays charts with historical sales trends and future AI forecasts.
+  - Approvals.jsx: Workspace for HODs to approve or reject pending requests.
+  - Tasks.jsx / AuditLogs.jsx / Reports.jsx / Notifications.jsx: Operational tracking and history files.
+
+================================================================================
+3. SYSTEM INTEGRATION & DATA FLOW
+================================================================================
+
+1. Authentication Flow:
+   - User enters details on the React login screen -> Backend "auth.py" authenticates 
+     against MySQL -> API issues JWT token -> React stores token in LocalStorage & AuthContext.
+     
+2. AI Rebalancing Flow:
+   - User runs simulation script (`create_shortages.py`) -> Stocks drop below critical thresholds.
+   - User goes to Rebalancing on React app -> Clicks "Run AI Rebalancing Engine".
+   - Frontend triggers backend API (`/api/v1/rebalancing/run`) -> Backend "rebalancing_service.py"
+     computes optimal routes, saves transfer recommendations to MySQL, and publishes
+     a notification.
+   - Frontend UI receives the result, displays State sub-labels, origin depots, and route comparison
+     modals showcasing cost savings benchmark (e.g. +62% cost optimization).
+
+3. Real-Time Alert Flow:
+   - When actions take place (e.g., critical stock alert, new approval task), backend triggers 
+     the notification service.
+   - The websocket manager broadcasts the notification via Redis.
+   - React components listening via `useWebSocket.js` dynamically display browser alerts and 
+     increment the unread badge count in `Topbar.jsx`.
+================================================================================

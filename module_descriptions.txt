@@ -1,0 +1,992 @@
+================================================================================
+         SMART SUPPLY CHAIN AI - MODULE DESCRIPTIONS
+         Project: Supply Chain Analysis
+         Generated: 2026-10-13
+================================================================================
+
+This document describes every module in the project — both Backend (FastAPI/Python)
+and Frontend (React/Vite). The project follows a role-based supply chain management
+system with AI-driven inventory rebalancing, forecasting, and real-time notifications.
+
+================================================================================
+                              PROJECT OVERVIEW
+================================================================================
+
+The application is a full-stack Smart Supply Chain AI platform that allows
+organizations to manage products, inventory, suppliers, sales, forecasting,
+and depot-to-depot inventory rebalancing across multiple user roles
+(Admin, HOD, Manager, Employee).
+
+Tech Stack:
+  - Backend  : Python, FastAPI, SQLAlchemy (ORM), SQLite/MySQL
+  - Frontend : React 19, Vite, Tailwind CSS, Recharts, Framer Motion
+  - Real-time: WebSockets (via Redis pub/sub)
+  - AI Engine: Custom AI service for demand forecasting & rebalancing logic
+
+================================================================================
+                         BACKEND MODULES
+================================================================================
+
+------------------------------------------------------------------------
+1. app/main.py
+------------------------------------------------------------------------
+Role        : Application Entry Point
+Description : Bootstraps the FastAPI application. Runs database table
+              creation and schema migrations (e.g., adding new columns to
+              existing tables). Registers all API routers with their URL
+              prefixes. Configures CORS middleware to allow cross-origin
+              requests. Triggers Redis initialization on startup via the
+              websocket manager.
+
+------------------------------------------------------------------------
+2. app/core/config.py
+------------------------------------------------------------------------
+Role        : Configuration Settings
+Description : Defines the application's global settings using Pydantic
+              BaseSettings. Loads environment variables for the project
+              name, API version prefix, database URL, secret key, and
+              JWT token expiry. Acts as the single source of truth for
+              all configuration values used across the backend.
+
+------------------------------------------------------------------------
+3. app/core/security.py
+------------------------------------------------------------------------
+Role        : Authentication & Security Utilities
+Description : Provides core security utilities including password hashing
+              (using bcrypt via passlib), password verification, JWT
+              access token creation, and token decoding/validation.
+              Used by the auth endpoint to secure login and protect
+              routes with token-based authentication.
+
+------------------------------------------------------------------------
+4. app/db/session.py
+------------------------------------------------------------------------
+Role        : Database Session Management
+Description : Configures the SQLAlchemy engine and session factory.
+              Creates the declarative Base class used by all ORM models.
+              Provides the get_db() dependency generator that yields
+              database sessions for FastAPI route handlers, ensuring
+              sessions are properly closed after each request.
+
+------------------------------------------------------------------------
+5. app/models/models.py
+------------------------------------------------------------------------
+Role        : ORM Database Models
+Description : Defines all SQLAlchemy ORM models (database tables) for the
+              application. Includes the following entities:
+              - User          : Stores user credentials, roles, and profile info
+              - Department    : Represents organizational departments
+              - Product       : Catalog of supply chain products
+              - Supplier      : Supplier details and contact information
+              - Inventory     : Stock levels per product per depot/location
+              - SalesRecord   : Historical sales transactions
+              - Alert         : System-generated stock/threshold alerts
+              - Notification  : User-facing messages and notifications
+              - Task          : Actionable tasks assigned to users
+              - Approval      : Approval workflow records
+              - AuditLog      : Immutable audit trail for all major actions
+              - RebalancingRecommendation : AI-suggested inventory transfers
+              - SignupRequest  : Pending new user registration requests
+              - AppSettings   : Global application configuration store
+
+------------------------------------------------------------------------
+6. app/schemas/auth.py
+------------------------------------------------------------------------
+Role        : Auth Pydantic Schemas
+Description : Defines Pydantic models for authentication-related request
+              and response data validation. Includes schemas for login
+              credentials, token response, user creation, password change,
+              forgot password, and reset password flows.
+
+------------------------------------------------------------------------
+7. app/schemas/approval.py
+------------------------------------------------------------------------
+Role        : Approval Pydantic Schemas
+Description : Pydantic models for the approval workflow — creation of
+              approval requests, status updates (approve/reject), and
+              response shapes returned to the frontend.
+
+------------------------------------------------------------------------
+8. app/schemas/department.py
+------------------------------------------------------------------------
+Role        : Department Pydantic Schemas
+Description : Pydantic models for department create/read operations.
+              Used for input validation and response serialization when
+              managing organizational departments.
+
+------------------------------------------------------------------------
+9. app/schemas/task.py
+------------------------------------------------------------------------
+Role        : Task Pydantic Schemas
+Description : Pydantic models for task creation, updates, and responses.
+              Includes fields for task title, description, assigned user,
+              due date, priority, and completion status.
+
+------------------------------------------------------------------------
+10. app/schemas/rebalancing.py
+------------------------------------------------------------------------
+Role        : Rebalancing Pydantic Schemas
+Description : Pydantic models for inventory rebalancing operations.
+              Covers transfer recommendation input/output, distance matrix
+              entries, depot data shapes, and transfer execution payloads.
+              Supports both AI-recommended and manual transfer workflows.
+
+------------------------------------------------------------------------
+11. app/api/endpoints/auth.py
+------------------------------------------------------------------------
+Role        : Authentication API Endpoints
+Description : Handles all authentication and user management routes:
+              - POST /login           : Authenticate user, return JWT token
+              - POST /signup-request  : Submit new user registration request
+              - GET/PATCH /me         : View and update current user profile
+              - POST /change-password : Change authenticated user's password
+              - POST /forgot-password : Initiate password reset flow
+              - POST /reset-password  : Complete password reset with token
+              - GET /users            : List all users (Admin only)
+              - POST /users           : Create new user (Admin only)
+              - PUT/DELETE /users/:id : Update or remove users (Admin only)
+              - GET/PATCH /signup-requests : Manage pending user requests
+
+------------------------------------------------------------------------
+12. app/api/endpoints/products.py
+------------------------------------------------------------------------
+Role        : Products API Endpoints
+Description : CRUD operations for the product catalog:
+              - GET    /products       : List all products (with filters)
+              - POST   /products       : Create new product
+              - PUT    /products/:id   : Update product details
+              - DELETE /products/:id   : Remove a product
+              Products contain fields like name, SKU, category, unit price,
+              reorder threshold, and supplier associations.
+
+------------------------------------------------------------------------
+13. app/api/endpoints/suppliers.py
+------------------------------------------------------------------------
+Role        : Suppliers API Endpoints
+Description : CRUD operations for supplier management:
+              - GET    /suppliers      : List all suppliers
+              - POST   /suppliers      : Add a new supplier
+              - PUT    /suppliers/:id  : Update supplier info
+              - DELETE /suppliers/:id  : Remove a supplier
+              Supplier data includes name, contact, location, lead time,
+              and reliability rating.
+
+------------------------------------------------------------------------
+14. app/api/endpoints/inventory.py
+------------------------------------------------------------------------
+Role        : Inventory API Endpoints
+Description : Manages stock level data per product and location:
+              - GET  /inventory        : Retrieve inventory records
+              - POST /inventory        : Add inventory entry
+              - PUT  /inventory/:id    : Update stock quantity
+              Provides data for low-stock alerts and rebalancing triggers.
+
+------------------------------------------------------------------------
+15. app/api/endpoints/sales.py
+------------------------------------------------------------------------
+Role        : Sales API Endpoints
+Description : Handles sales transaction data:
+              - GET  /sales            : Retrieve sales history
+              - POST /sales            : Record new sales transaction
+              Sales data feeds the AI forecasting engine to predict
+              future demand trends by product and region.
+
+------------------------------------------------------------------------
+16. app/api/endpoints/forecasting.py
+------------------------------------------------------------------------
+Role        : Forecasting API Endpoints
+Description : Exposes AI-powered demand forecasting capabilities:
+              - GET /forecasting/demand     : Get demand forecasts per product
+              - GET /forecasting/trends     : Retrieve trend analysis data
+              Calls the forecasting service which uses historical sales
+              data to project future inventory requirements.
+
+------------------------------------------------------------------------
+17. app/api/endpoints/alerts.py
+------------------------------------------------------------------------
+Role        : Alerts API Endpoints
+Description : Manages system-generated alerts for inventory issues:
+              - GET    /alerts         : List all alerts (with filters)
+              - POST   /alerts         : Create a manual alert
+              - PATCH  /alerts/:id     : Acknowledge or archive an alert
+              - DELETE /alerts/:id     : Remove an alert
+              Alerts are triggered when inventory falls below thresholds
+              or when anomalies are detected by the AI engine.
+
+------------------------------------------------------------------------
+18. app/api/endpoints/notifications.py
+------------------------------------------------------------------------
+Role        : Notifications API Endpoints
+Description : Manages in-app notification messages for users:
+              - GET   /notifications          : List user's notifications
+              - PATCH /notifications/:id      : Mark as read or archive
+              - PATCH /notifications/read-all : Mark all as read
+              - DELETE /notifications/:id     : Delete a notification
+              Notifications can be assigned priority levels, departments,
+              and are sent via WebSocket for real-time delivery.
+
+------------------------------------------------------------------------
+19. app/api/endpoints/tasks.py
+------------------------------------------------------------------------
+Role        : Tasks API Endpoints
+Description : Task management for all user roles:
+              - GET    /tasks          : List tasks (role-filtered)
+              - POST   /tasks          : Create a new task
+              - PUT    /tasks/:id      : Update task details
+              - PATCH  /tasks/:id      : Change task status
+              - DELETE /tasks/:id      : Remove a task
+              Tasks support priority levels, due dates, assignment to
+              users, and completion tracking with audit logging.
+
+------------------------------------------------------------------------
+20. app/api/endpoints/approvals.py
+------------------------------------------------------------------------
+Role        : Approvals API Endpoints
+Description : Handles multi-step approval workflows:
+              - GET    /approvals           : List approval requests
+              - POST   /approvals           : Submit a new approval request
+              - PATCH  /approvals/:id       : Approve or reject a request
+              - DELETE /approvals/:id       : Remove an approval record
+              Used for authorizing significant actions like large inventory
+              transfers or user access changes.
+
+------------------------------------------------------------------------
+21. app/api/endpoints/audit_logs.py
+------------------------------------------------------------------------
+Role        : Audit Logs API Endpoints
+Description : Read-only access to the system audit trail:
+              - GET /audit-logs       : Retrieve filtered audit log entries
+              Logs capture who performed what action, on which entity,
+              and when. Supports filtering by user, action type, and date.
+
+------------------------------------------------------------------------
+22. app/api/endpoints/reports.py
+------------------------------------------------------------------------
+Role        : Reports API Endpoints
+Description : Generates and serves business intelligence reports:
+              - GET /reports/inventory  : Inventory status report
+              - GET /reports/sales      : Sales performance report
+              - GET /reports/suppliers  : Supplier performance report
+              - GET /reports/forecasting: Demand forecast report
+              Reports aggregate data across modules for management views
+              and can be exported via the report service.
+
+------------------------------------------------------------------------
+23. app/api/endpoints/rebalancing.py
+------------------------------------------------------------------------
+Role        : Inventory Rebalancing API Endpoints
+Description : The core AI-driven rebalancing module:
+              - GET  /rebalancing/recommendations  : Get AI transfer suggestions
+              - POST /rebalancing/execute          : Execute a transfer
+              - GET  /rebalancing/distance-matrix  : View depot distance data
+              - POST /rebalancing/distance-matrix  : Update distance entries
+              - GET  /rebalancing/depots           : List depot information
+              - GET  /rebalancing/transfers         : Transfer history
+              - GET  /rebalancing/network-map       : Geographic network data
+              Uses optimization algorithms considering distance, stock
+              surplus/deficit, and transfer costs.
+
+------------------------------------------------------------------------
+24. app/api/endpoints/departments.py
+------------------------------------------------------------------------
+Role        : Departments API Endpoints
+Description : Manages organizational departments:
+              - GET    /departments    : List all departments
+              - POST   /departments    : Create a department
+              - PUT    /departments/:id: Update department
+              - DELETE /departments/:id: Remove department
+              Departments are linked to users, tasks, and notifications
+              for role-based data scoping.
+
+------------------------------------------------------------------------
+25. app/api/endpoints/settings.py
+------------------------------------------------------------------------
+Role        : Application Settings API Endpoints
+Description : Manages global application configuration:
+              - GET  /settings         : Retrieve current app settings
+              - POST /settings         : Create or update a setting
+              - PUT  /settings/:key    : Update specific setting by key
+              Settings control system-wide parameters like alert
+              thresholds, notification preferences, and feature flags.
+
+------------------------------------------------------------------------
+26. app/api/endpoints/dashboard_admin.py
+------------------------------------------------------------------------
+Role        : Admin Dashboard API Endpoints
+Description : Aggregated KPI data for system administrators:
+              - GET /dashboard/admin   : Returns stats on total users,
+                products, inventory value, open alerts, recent activity,
+                system health metrics, and role distribution data.
+
+------------------------------------------------------------------------
+27. app/api/endpoints/dashboard_hod.py
+------------------------------------------------------------------------
+Role        : HOD Dashboard API Endpoints
+Description : Department-level overview for Heads of Department:
+              - GET /dashboard/hod     : Returns department KPIs including
+                team performance, pending approvals, department task
+                completion rates, and inventory under department scope.
+
+------------------------------------------------------------------------
+28. app/api/endpoints/dashboard_manager.py
+------------------------------------------------------------------------
+Role        : Manager Dashboard API Endpoints
+Description : Operational metrics for supply chain managers:
+              - GET /dashboard/manager : Returns warehouse/depot-level stats,
+                low-stock alerts, pending transfers, sales trends,
+                top products, and team task progress.
+
+------------------------------------------------------------------------
+29. app/api/endpoints/dashboard_employee.py
+------------------------------------------------------------------------
+Role        : Employee Dashboard API Endpoints
+Description : Individual-level view for field employees:
+              - GET /dashboard/employee: Returns personal task list,
+                assigned notifications, inventory items to monitor,
+                and recent activity relevant to the employee.
+
+------------------------------------------------------------------------
+30. app/api/endpoints/websockets.py
+------------------------------------------------------------------------
+Role        : WebSocket API Endpoints
+Description : Manages persistent WebSocket connections for real-time
+              communication:
+              - WS /ws/connect        : Establishes WebSocket connection
+              - WS /ws/notifications  : Real-time notification stream
+              Authenticates connections via JWT, subscribes users to
+              their notification channels, and handles graceful disconnect.
+
+------------------------------------------------------------------------
+31. app/services/ai_engine.py
+------------------------------------------------------------------------
+Role        : AI & Analytics Engine
+Description : The core intelligence service powering demand forecasting
+              and anomaly detection. Uses statistical models and historical
+              sales data to:
+              - Generate product demand forecasts
+              - Detect inventory anomalies and unusual consumption patterns
+              - Calculate confidence intervals for predictions
+              - Produce trend analysis (seasonal, growth, decline)
+              - Support the rebalancing optimization with demand signals
+
+------------------------------------------------------------------------
+32. app/services/rebalancing_service.py
+------------------------------------------------------------------------
+Role        : Inventory Rebalancing Service
+Description : Business logic for AI-driven inventory rebalancing:
+              - Identifies surplus and deficit locations from inventory data
+              - Calculates optimal transfer routes using distance matrix
+              - Scores and ranks transfer recommendations by priority
+              - Generates transfer plans minimizing cost and transit time
+              - Updates inventory records after transfer execution
+              - Logs all rebalancing actions to the audit trail
+
+------------------------------------------------------------------------
+33. app/services/forecasting_service.py
+------------------------------------------------------------------------
+Role        : Demand Forecasting Service
+Description : Wraps the AI engine to provide structured forecasting results:
+              - Calls AI engine with historical sales data inputs
+              - Formats forecast outputs into API-ready structures
+              - Handles time-series smoothing and data preprocessing
+              - Provides short-term (7-day) and medium-term (30-day) forecasts
+
+------------------------------------------------------------------------
+34. app/services/forecasting.py
+------------------------------------------------------------------------
+Role        : Forecasting Utility Functions
+Description : Helper functions for the forecasting module including
+              data aggregation, moving average calculations, and
+              trend direction classification (upward/downward/stable).
+
+------------------------------------------------------------------------
+35. app/services/report_service.py
+------------------------------------------------------------------------
+Role        : Report Generation Service
+Description : Generates structured business reports from raw database data:
+              - Inventory Report   : Stock levels, low-stock items, valuation
+              - Sales Report       : Revenue trends, top sellers, performance
+              - Supplier Report    : Lead times, reliability scores, rankings
+              - Forecasting Report : Demand projections, accuracy metrics
+              Handles data aggregation, formatting, and report serialization
+              for both in-app viewing and potential CSV/PDF export.
+
+------------------------------------------------------------------------
+36. app/services/notification_service.py
+------------------------------------------------------------------------
+Role        : Notification Service
+Description : Manages creation and delivery of in-app notifications:
+              - Creates notifications for system events (alerts, approvals)
+              - Assigns priority (LOW, MEDIUM, HIGH, CRITICAL)
+              - Routes notifications to correct users/departments
+              - Triggers WebSocket push for real-time delivery
+              - Handles bulk notification creation for broadcast messages
+
+------------------------------------------------------------------------
+37. app/services/audit_service.py
+------------------------------------------------------------------------
+Role        : Audit Logging Service
+Description : Provides a centralized function for writing audit log entries.
+              Called throughout the application whenever a significant
+              action occurs (user login, data modification, approval
+              decisions). Captures the actor, action type, target entity,
+              and timestamp for compliance and traceability.
+
+------------------------------------------------------------------------
+38. app/services/websocket_manager.py
+------------------------------------------------------------------------
+Role        : WebSocket Connection Manager
+Description : Manages active WebSocket connections and real-time message
+              broadcasting:
+              - Maintains registry of active connections per user
+              - Integrates with Redis pub/sub for scalable message delivery
+              - Broadcasts notifications to specific users or all connections
+              - Handles Redis initialization, subscription, and cleanup
+              - Supports both direct send and broadcast patterns
+
+------------------------------------------------------------------------
+39. app/services/inventory_service.py
+------------------------------------------------------------------------
+Role        : Inventory Business Logic Service
+Description : Helper functions for inventory operations including:
+              - Checking stock levels against reorder thresholds
+              - Triggering alerts for low/out-of-stock situations
+              - Calculating total inventory value
+              - Updating stock quantities after sales or transfers
+
+------------------------------------------------------------------------
+40. app/services/product_service.py
+------------------------------------------------------------------------
+Role        : Product Business Logic Service
+Description : Utility functions for product-related operations:
+              - Product lookup and search helpers
+              - Category aggregation
+              - Integration support for inventory and supplier linking
+
+================================================================================
+                         FRONTEND MODULES
+================================================================================
+
+------------------------------------------------------------------------
+41. frontend/src/main.jsx
+------------------------------------------------------------------------
+Role        : React Application Entry Point
+Description : Bootstraps the React application. Mounts the root App
+              component into the DOM. Wraps the app with React.StrictMode
+              for development checks.
+
+------------------------------------------------------------------------
+42. frontend/src/App.jsx
+------------------------------------------------------------------------
+Role        : Root Application Component & Router
+Description : Defines the entire application routing structure using
+              React Router. Wraps the app with AuthContext and ThemeContext
+              providers. Configures protected routes using RequireRole
+              component for role-based access control. Maps all URL paths
+              to their respective page components.
+
+------------------------------------------------------------------------
+43. frontend/src/context/AuthContext.jsx
+------------------------------------------------------------------------
+Role        : Authentication Context Provider
+Description : Manages global authentication state across the application:
+              - Stores JWT token and decoded user information
+              - Provides login() and logout() functions
+              - Persists auth state in localStorage
+              - Exposes user role, name, and permissions to all components
+              - Used by RequireRole to guard protected routes
+
+------------------------------------------------------------------------
+44. frontend/src/context/ThemeContext.jsx
+------------------------------------------------------------------------
+Role        : Theme Context Provider
+Description : Manages the application's light/dark theme state.
+              Persists user theme preference in localStorage.
+              Provides toggleTheme() function consumed by the Topbar.
+
+------------------------------------------------------------------------
+45. frontend/src/services/api.js
+------------------------------------------------------------------------
+Role        : Centralized API Service Layer
+Description : The single file handling all HTTP communication with the
+              backend. Uses Axios with a configured base URL and auth
+              token injection via interceptors. Exports named functions
+              for every API endpoint group:
+              - authAPI      : login, signup, profile, password management
+              - productsAPI  : product CRUD operations
+              - suppliersAPI : supplier CRUD operations
+              - inventoryAPI : stock level operations
+              - salesAPI     : sales record operations
+              - forecastAPI  : demand forecast retrieval
+              - alertsAPI    : alert management
+              - notificationsAPI : notification operations
+              - tasksAPI     : task management
+              - approvalsAPI : approval workflow calls
+              - auditAPI     : audit log retrieval
+              - reportsAPI   : report generation calls
+              - rebalancingAPI : transfer recommendations and execution
+              - dashboardAPI  : role-specific dashboard data
+              - settingsAPI   : app settings management
+              - departmentsAPI: department CRUD
+
+------------------------------------------------------------------------
+46. frontend/src/hooks/useWebSocket.js
+------------------------------------------------------------------------
+Role        : WebSocket Custom Hook
+Description : React custom hook that establishes and manages a WebSocket
+              connection to the backend. Handles connection lifecycle
+              (open, message, error, close), automatic reconnection,
+              and delivers real-time notification events to components
+              that subscribe to it (primarily the Topbar).
+
+------------------------------------------------------------------------
+47. frontend/src/components/RequireRole.jsx
+------------------------------------------------------------------------
+Role        : Route Guard Component
+Description : Higher-order component that wraps protected routes and
+              checks the user's role from AuthContext. Redirects to
+              the /unauthorized page if the user's role does not match
+              the allowed roles for that route.
+
+------------------------------------------------------------------------
+48. frontend/src/components/TypewriterText.jsx
+------------------------------------------------------------------------
+Role        : Typewriter Animation Component
+Description : A reusable UI component that renders text with a typewriter
+              animation effect. Used on the Login page to display
+              dynamic welcome messages character by character.
+
+------------------------------------------------------------------------
+49. frontend/src/components/layout/MainLayout.jsx
+------------------------------------------------------------------------
+Role        : Main Layout Wrapper
+Description : The shell layout component that wraps all authenticated
+              pages. Renders the Topbar navigation and a main content
+              area where child page components are displayed.
+
+------------------------------------------------------------------------
+50. frontend/src/components/layout/Topbar.jsx
+------------------------------------------------------------------------
+Role        : Top Navigation Bar
+Description : The primary navigation component displayed on all
+              authenticated pages. Features:
+              - Application logo and title
+              - Role-based navigation menu items
+              - Real-time notification bell with unread count badge
+              - Notification dropdown panel
+              - User profile menu (name, role, logout)
+              - Light/dark theme toggle switch
+              - WebSocket integration for live notification updates
+
+------------------------------------------------------------------------
+51. frontend/src/components/layout/SubNav.jsx
+------------------------------------------------------------------------
+Role        : Sub-Navigation Component
+Description : Secondary navigation bar rendered within specific pages
+              (e.g., Rebalancing, Depots) that provides tab-based
+              navigation between sub-sections of a feature module.
+
+------------------------------------------------------------------------
+52. frontend/src/pages/Login.jsx
+------------------------------------------------------------------------
+Role        : Login Page
+Description : The application entry page where users authenticate.
+              Features animated background, TypewriterText greeting,
+              email/password form with validation, JWT token handling,
+              and redirect to the appropriate role-based dashboard
+              after successful login.
+
+------------------------------------------------------------------------
+53. frontend/src/pages/Signup.jsx
+------------------------------------------------------------------------
+Role        : Signup / Registration Request Page
+Description : Allows new users to submit a registration request.
+              Collects name, email, department, and role preference.
+              Submits to the signup-request endpoint for admin review.
+
+------------------------------------------------------------------------
+54. frontend/src/pages/ForgotPassword.jsx
+------------------------------------------------------------------------
+Role        : Forgot Password Page
+Description : Allows users to initiate a password reset by entering
+              their registered email address. Triggers the backend
+              to send a reset token/link.
+
+------------------------------------------------------------------------
+55. frontend/src/pages/ResetPassword.jsx
+------------------------------------------------------------------------
+Role        : Reset Password Page
+Description : Allows users to set a new password using a valid reset
+              token received via email. Validates the new password
+              and confirmation before submitting to the backend.
+
+------------------------------------------------------------------------
+56. frontend/src/pages/ChangePassword.jsx
+------------------------------------------------------------------------
+Role        : Change Password Page
+Description : Authenticated page allowing users to change their own
+              password by providing the current password and a new
+              password. Includes strength validation feedback.
+
+------------------------------------------------------------------------
+57. frontend/src/pages/Profile.jsx
+------------------------------------------------------------------------
+Role        : User Profile Page
+Description : Allows authenticated users to view and edit their own
+              profile information including display name, email,
+              contact number, and department. Shows current role.
+
+------------------------------------------------------------------------
+58. frontend/src/pages/Dashboard.jsx
+------------------------------------------------------------------------
+Role        : Dashboard Router Page
+Description : A smart routing component that reads the user's role
+              from AuthContext and renders the appropriate role-specific
+              dashboard component (Admin, HOD, Manager, or Employee).
+
+------------------------------------------------------------------------
+59. frontend/src/pages/dashboards/AdminDashboard.jsx
+------------------------------------------------------------------------
+Role        : Admin Dashboard
+Description : High-level system overview for administrators. Displays:
+              - Total users, products, inventory value, open alerts
+              - User role distribution chart
+              - Recent system activity feed
+              - System health indicators
+              - Quick access links to admin-only sections
+
+------------------------------------------------------------------------
+60. frontend/src/pages/dashboards/HodDashboard.jsx
+------------------------------------------------------------------------
+Role        : Head of Department Dashboard
+Description : Department management overview for HODs. Shows:
+              - Department task completion metrics
+              - Pending approval requests
+              - Team member activity summaries
+              - Department-scoped inventory alerts
+
+------------------------------------------------------------------------
+61. frontend/src/pages/dashboards/ManagerDashboard.jsx
+------------------------------------------------------------------------
+Role        : Manager Dashboard
+Description : Operational dashboard for supply chain managers. Shows:
+              - Warehouse stock summary with low-stock alerts
+              - Pending inventory transfers
+              - Sales trends and top-performing products
+              - Team task progress and completion rates
+              - Recharts graphs for sales and inventory trends
+
+------------------------------------------------------------------------
+62. frontend/src/pages/dashboards/EmployeeDashboard.jsx
+------------------------------------------------------------------------
+Role        : Employee Dashboard
+Description : Personal task and activity view for field employees. Shows:
+              - My Tasks list with status and due dates
+              - Personal notifications
+              - Inventory items assigned for monitoring
+              - Recent audit trail for own actions
+
+------------------------------------------------------------------------
+63. frontend/src/pages/Products.jsx
+------------------------------------------------------------------------
+Role        : Product Management Page
+Description : Full product catalog management interface with:
+              - Sortable, filterable product table
+              - Add / Edit / Delete product modals
+              - Search by name, SKU, or category
+              - Category filter dropdown
+              - Stock level indicators and reorder threshold display
+              - Supplier association display
+
+------------------------------------------------------------------------
+64. frontend/src/pages/Suppliers.jsx
+------------------------------------------------------------------------
+Role        : Supplier Management Page
+Description : Complete supplier management interface featuring:
+              - Supplier listing with search and filter
+              - Add / Edit / Delete supplier modals with full form
+              - Lead time and reliability score display
+              - Location and contact information management
+              - Performance metrics per supplier
+
+------------------------------------------------------------------------
+65. frontend/src/pages/Inventory.jsx
+------------------------------------------------------------------------
+Role        : Inventory Management Page
+Description : Stock level management interface showing:
+              - Inventory table grouped by product and location
+              - Stock quantity editing (inline or modal)
+              - Low-stock and out-of-stock visual indicators
+              - Filter by depot, category, or status
+              - Inventory value calculations
+
+------------------------------------------------------------------------
+66. frontend/src/pages/Sales.jsx
+------------------------------------------------------------------------
+Role        : Sales Records Page
+Description : Sales transaction history and entry interface:
+              - Sales table with product, quantity, revenue, date
+              - Add new sales record form
+              - Date range filtering and search
+              - Revenue trend mini-chart
+              - Export-ready data table format
+
+------------------------------------------------------------------------
+67. frontend/src/pages/Forecasting.jsx
+------------------------------------------------------------------------
+Role        : Demand Forecasting Page
+Description : AI-powered demand forecasting visualization page:
+              - Product-specific demand forecast charts (Recharts)
+              - 7-day and 30-day forecast display
+              - Trend direction indicators (up/down/stable)
+              - Confidence interval visualization
+              - Product selector to compare forecasts
+              - Historical vs predicted comparison charts
+
+------------------------------------------------------------------------
+68. frontend/src/pages/Alerts.jsx
+------------------------------------------------------------------------
+Role        : Alerts Management Page
+Description : System alert monitoring and management:
+              - Filterable alert list (severity, type, status)
+              - Alert detail panel (product, location, threshold breach)
+              - Acknowledge and archive actions
+              - Real-time alert badge count (via WebSocket)
+              - Alert history with timestamps
+
+------------------------------------------------------------------------
+69. frontend/src/pages/Notifications.jsx
+------------------------------------------------------------------------
+Role        : Notifications Page
+Description : In-app notification center:
+              - All notifications with priority badges
+              - Mark as read / archive / delete actions
+              - Mark all as read bulk action
+              - Filter by priority, department, or read status
+              - Timestamp display with relative time formatting
+
+------------------------------------------------------------------------
+70. frontend/src/pages/Tasks.jsx
+------------------------------------------------------------------------
+Role        : Task Management Page
+Description : Task tracking and management for all roles:
+              - Task list with status columns (Todo, In Progress, Done)
+              - Create task modal (title, description, assignee, due date)
+              - Priority labels (Low, Medium, High, Critical)
+              - Edit and delete task actions
+              - Filter by status, priority, or assigned user
+              - Role-based visibility (managers see all; employees see own)
+
+------------------------------------------------------------------------
+71. frontend/src/pages/Approvals.jsx
+------------------------------------------------------------------------
+Role        : Approvals Workflow Page
+Description : Manages the approval workflow for significant actions:
+              - List of pending, approved, and rejected requests
+              - Submit new approval request form
+              - Approve / Reject actions (HOD/Admin only)
+              - Request detail view with supporting context
+              - Audit trail of approval decisions
+
+------------------------------------------------------------------------
+72. frontend/src/pages/AuditLogs.jsx
+------------------------------------------------------------------------
+Role        : Audit Logs Page
+Description : Read-only system audit trail viewer:
+              - Chronological log of all significant system actions
+              - Filter by user, action type, entity, or date range
+              - Detailed log entry view showing before/after states
+              - Export-ready tabular layout
+
+------------------------------------------------------------------------
+73. frontend/src/pages/Reports.jsx
+------------------------------------------------------------------------
+Role        : Reports Page
+Description : Business intelligence reporting interface:
+              - Report type selector (Inventory, Sales, Supplier, Forecast)
+              - Summary KPI cards per report type
+              - Data tables with sortable columns
+              - Integration with report_service backend endpoints
+
+------------------------------------------------------------------------
+74. frontend/src/pages/Rebalancing.jsx
+------------------------------------------------------------------------
+Role        : Inventory Rebalancing Page
+Description : Main hub for AI-driven inventory rebalancing:
+              - Sub-navigation to Transfer Recommendations, Distance Matrix,
+                Depots, Network Map, States, and Transfer History
+              - Overview cards showing pending recommendations count
+              - Entry point for executing inter-depot transfers
+
+------------------------------------------------------------------------
+75. frontend/src/pages/TransferRecommendations.jsx
+------------------------------------------------------------------------
+Role        : Transfer Recommendations Page
+Description : Displays AI-generated inventory transfer recommendations:
+              - Source and destination depot per recommendation
+              - Product, quantity, and priority for each transfer
+              - Approve / Execute / Dismiss actions per recommendation
+              - Urgency scoring and color-coded priority badges
+              - Filtering by urgency level, product, or depot
+
+------------------------------------------------------------------------
+76. frontend/src/pages/DistanceMatrix.jsx
+------------------------------------------------------------------------
+Role        : Distance Matrix Page
+Description : Manages depot-to-depot distance data used for rebalancing:
+              - Grid/table view of distances between all depot pairs
+              - Add or edit distance entries (km or time-based)
+              - Distance data directly feeds the optimization algorithm
+              - Import and validation of distance data
+
+------------------------------------------------------------------------
+77. frontend/src/pages/Depots.jsx
+------------------------------------------------------------------------
+Role        : Depot Management Page
+Description : Manages warehouse/depot locations in the supply network:
+              - List of all depots with location and capacity details
+              - Current stock summary per depot
+              - Add / Edit / Delete depot entries
+              - Depot-level inventory value and utilization metrics
+
+------------------------------------------------------------------------
+78. frontend/src/pages/NetworkMap.jsx
+------------------------------------------------------------------------
+Role        : Supply Chain Network Map Page
+Description : Visual representation of the supply chain network:
+              - Geographic or logical map of depot connections
+              - Shows active transfer routes and their status
+              - Color-coded nodes by stock level (surplus/deficit/normal)
+              - Interactive depot selection to view details
+
+------------------------------------------------------------------------
+79. frontend/src/pages/States.jsx
+------------------------------------------------------------------------
+Role        : States/Regions Page
+Description : Manages geographic state/region definitions used to
+              group depots for reporting and rebalancing logic:
+              - List of states/regions in the system
+              - Associate depots to states
+              - Region-level inventory summary
+
+------------------------------------------------------------------------
+80. frontend/src/pages/Users.jsx
+------------------------------------------------------------------------
+Role        : User Management Page (Admin Only)
+Description : Full user management interface for administrators:
+              - Searchable and filterable user list
+              - Create, edit, deactivate, and delete users
+              - Role assignment (Admin, HOD, Manager, Employee)
+              - Department assignment
+              - View user activity and last login time
+
+------------------------------------------------------------------------
+81. frontend/src/pages/UserRequests.jsx
+------------------------------------------------------------------------
+Role        : User Registration Requests Page (Admin Only)
+Description : Manages pending new user signup requests:
+              - List of all pending registration requests
+              - Approve request (creates user account) or Reject
+              - View submitted details (name, email, role, department)
+              - Approved/rejected request history
+
+------------------------------------------------------------------------
+82. frontend/src/pages/Departments.jsx
+------------------------------------------------------------------------
+Role        : Departments Management Page
+Description : Interface for managing organizational departments:
+              - Department list with member count
+              - Create, edit, delete departments
+              - View users assigned to each department
+
+------------------------------------------------------------------------
+83. frontend/src/pages/Settings.jsx
+------------------------------------------------------------------------
+Role        : Application Settings Page
+Description : Global application configuration management:
+              - Threshold settings (low stock alert levels)
+              - Notification preferences
+              - System feature flags
+              - App-wide parameter management (Admin only)
+
+------------------------------------------------------------------------
+84. frontend/src/pages/Unauthorized.jsx
+------------------------------------------------------------------------
+Role        : Unauthorized Access Page
+Description : Displayed when a user attempts to access a route for
+              which they lack the required role. Shows an error message
+              and a back/home navigation button.
+
+------------------------------------------------------------------------
+85. frontend/src/pages/SuperAdmin.jsx
+------------------------------------------------------------------------
+Role        : Super Admin Placeholder Page
+Description : Reserved page for super-administrator level access.
+              Currently a placeholder for future super-admin features
+              above the standard Admin role.
+
+================================================================================
+                         CONFIGURATION & BUILD FILES
+================================================================================
+
+------------------------------------------------------------------------
+86. backend/requirements.txt
+------------------------------------------------------------------------
+Role        : Python Dependency Manifest
+Description : Lists all Python packages required for the backend:
+              FastAPI, Uvicorn, SQLAlchemy, Pydantic, python-jose (JWT),
+              passlib (bcrypt), redis, and related utilities.
+
+------------------------------------------------------------------------
+87. frontend/vite.config.js
+------------------------------------------------------------------------
+Role        : Vite Build Configuration
+Description : Configures the Vite build tool and development server
+              for the React frontend. Sets up the React plugin,
+              build output directory, and development server port.
+
+------------------------------------------------------------------------
+88. frontend/tailwind.config.js
+------------------------------------------------------------------------
+Role        : Tailwind CSS Configuration
+Description : Extends the default Tailwind theme with custom color
+              palettes, fonts, animations, and breakpoints used
+              throughout the frontend components.
+
+------------------------------------------------------------------------
+89. frontend/index.html
+------------------------------------------------------------------------
+Role        : HTML Entry Point
+Description : The root HTML document for the single-page React application.
+              Contains the root <div id="root"> mount point, links to
+              the favicon, and loads the main.jsx entry script.
+
+================================================================================
+                         MODULE RELATIONSHIP SUMMARY
+================================================================================
+
+  [User Browser]
+      |
+      v
+  [React Frontend (port 5173)]
+      |-- pages/       --> UI screens for each feature
+      |-- components/  --> Reusable UI building blocks
+      |-- context/     --> Global state (auth, theme)
+      |-- services/    --> HTTP calls to backend via Axios
+      |-- hooks/       --> WebSocket real-time connection
+      |
+      v (HTTP + WebSocket)
+  [FastAPI Backend (port 8000)]
+      |-- api/endpoints/  --> Route handlers (REST API)
+      |-- services/       --> Business logic layer
+      |-- models/         --> ORM database models
+      |-- schemas/        --> Request/response validation
+      |-- core/           --> Config & security utilities
+      |-- db/             --> Database session management
+      |
+      v
+  [SQLite / MySQL Database]  +  [Redis (WebSocket pub/sub)]
+
+================================================================================
+  Total Modules: 89 (40 Backend + 45 Frontend + 4 Config/Build)
+================================================================================
