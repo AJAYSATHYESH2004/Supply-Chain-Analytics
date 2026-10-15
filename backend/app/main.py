@@ -43,9 +43,17 @@ app = FastAPI(
 )
 
 # Set all CORS enabled origins
+# In production, set ALLOWED_ORIGINS env var to your Vercel frontend URL
+import os
+allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "")
+if allowed_origins_env:
+    allowed_origins = [o.strip() for o in allowed_origins_env.split(",")]
+else:
+    allowed_origins = ["*"]  # Allow all in dev
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify actual origins
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

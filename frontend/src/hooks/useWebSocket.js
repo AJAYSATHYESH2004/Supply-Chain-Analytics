@@ -20,14 +20,20 @@ export const useWebSocket = (path, onMessage, dependencies = []) => {
       // Automatically construct WebSocket URL pointing to the backend (port 8000)
       const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       
-      // Determine correct host/port. If running locally, Vite runs on 5173 but backend on 8000
-      let wsHost = window.location.host;
-      if (wsHost.includes('localhost:') || wsHost.includes('127.0.0.1:')) {
+      // Use VITE_WS_URL env var in production (e.g., wss://your-backend.onrender.com)
+      // Fallback: running locally, Vite runs on 5173 but backend on 8000
+      let wsHost;
+      if (import.meta.env.VITE_WS_URL) {
+        wsHost = import.meta.env.VITE_WS_URL.replace(/^wss?:\/\//, '');
+      } else if (window.location.host.includes('localhost:') || window.location.host.includes('127.0.0.1:')) {
         wsHost = 'localhost:8000';
+      } else {
+        wsHost = window.location.host;
       }
       
       const normalizedPath = path.startsWith('/') ? path : `/${path}`;
       const wsUrl = `${wsProtocol}//${wsHost}${normalizedPath}?token=${token}`;
+
 
       console.log(`[WebSocket] Connecting to: ${wsUrl}`);
       const socket = new WebSocket(wsUrl);
